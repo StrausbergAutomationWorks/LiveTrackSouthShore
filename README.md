@@ -58,9 +58,9 @@ Built by **Strausberg Automation Works**.
 
 Related work — additive contributions to existing Home Assistant integrations:
 
-* [flights_above](https://github.com/LeeS773-prog/flights_above) — a third ADS-B
+* [flights_above](https://github.com/StrausbergAutomationWorks/flights_above) — a third ADS-B
   position source plus ICAO operator and aircraft-type resolution
-* [Metra-Tracker-Lee](https://github.com/LeeS773-prog/Metra-Tracker-Lee) — live
+* [Metra-Tracker-Lee](https://github.com/StrausbergAutomationWorks/Metra-Tracker-Lee) — live
   GTFS-Realtime vehicle positions for Metra
 
 ## Attribution
