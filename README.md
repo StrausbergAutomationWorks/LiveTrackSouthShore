@@ -1,7 +1,9 @@
-﻿# South Shore Line Tracker
+# South Shore Line Train Tracker
+
+*By [Strausberg Automation Works](https://github.com/LeeS773-prog)*
 
 Home Assistant integration for live train positions and delays on the
-**South Shore Line** (NICTD) â€” Millennium Station in the Chicago Loop out to
+**South Shore Line** (NICTD) — Millennium Station in the Chicago Loop out to
 South Bend, Indiana.
 
 Operated by NICTD rather than Metra, so it is absent from Metra integrations
@@ -9,8 +11,9 @@ despite sharing Metra Electric District trackage into the Loop.
 
 ## Why this exists
 
-NICTD publishes GTFS-Realtime feeds as public S3 objects â€” **no API key, no
-licence agreement, no registration**. Nothing consumed them for Home Assistant.
+NICTD publishes GTFS-Realtime feeds as public S3 objects — **no API key, no
+licence agreement, no registration**. As far as I can find, nothing consumed
+them for Home Assistant.
 
 ## What you get
 
@@ -33,18 +36,24 @@ The feed is GTFS-RT but non-standard in three ways:
 | `trip_id` | The bare train number (`515`), not a GTFS trip_id. Will not join a static schedule. |
 | `bearing` | Always `0`. This integration derives direction from successive positions instead. |
 
-There is also no `stop_id` and no absolute arrival times â€” only `stop_sequence`
+There is also no `stop_id` and no absolute arrival times — only `stop_sequence`
 and a delay offset. So "how late is it" works; "when does it reach Millennium"
 would need a static schedule, and no current NICTD GTFS static source appears
-to exist.
+to exist (TransitFeeds is deprecated and GTFS Data Exchange's NICTD feed was
+last updated in 2010).
 
 ## Install
 
-Copy `custom_components/south_shore_tracker/` into your HA `config` directory
-and restart, then add the integration from Settings â†’ Devices & Services.
-The only setting is the poll interval.
+Copy `custom_components/south_shore_tracker/` into your Home Assistant
+`config` directory and restart, then add the integration from
+Settings → Devices & Services. The only setting is the poll interval.
 
 ## Attribution
 
-Live data from NICTD / South Shore Line via ETA SPOT (mysouthshoreline.com).
-Not affiliated with or endorsed by NICTD.
+Live data from NICTD / South Shore Line via ETA SPOT
+([mysouthshoreline.com](https://mysouthshoreline.com)).
+Not affiliated with, endorsed by, or supported by NICTD.
+
+## Licence
+
+MIT
