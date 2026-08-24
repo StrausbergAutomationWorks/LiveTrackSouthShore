@@ -1,0 +1,26 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "South Shore Line Tracker",
+        "description": "Live train positions and delays for the South Shore Line (NICTD), Millennium Station to South Bend. No API key is required.",
+        "data": {
+          "scan_interval": "Poll interval (seconds)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "The South Shore Line is already set up. NICTD runs a single line, so a second entry would only duplicate entities."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "South Shore Line options",
+        "data": {
+          "scan_interval": "Poll interval (seconds)"
+        }
+      }
+    }
+  }
+}
