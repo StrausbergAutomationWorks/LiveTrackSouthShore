@@ -1,11 +1,11 @@
-"""Constants for the South Shore Line (NICTD) tracker."""
+﻿"""Constants for the South Shore Line (NICTD) tracker."""
 
 DOMAIN = "south_shore_tracker"
 
 CONF_COUNT = "count"
 CONF_SCAN_INTERVAL = "scan_interval"
 
-DEFAULT_NAME = "South Shore Line"
+DEFAULT_NAME = "South Shore Line Train Tracker"
 DEFAULT_SCAN_INTERVAL = 30  # seconds; the feed republishes roughly this often
 MIN_SCAN_INTERVAL = 15
 MAX_SCAN_INTERVAL = 3600
