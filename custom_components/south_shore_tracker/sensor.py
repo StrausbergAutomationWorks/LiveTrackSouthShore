@@ -45,6 +45,10 @@ class _Base(SensorEntity):
 
     _attr_attribution = ATTRIBUTION
     _attr_should_poll = False
+    # HA composes "<device name> <entity name>". Without this the entity name
+    # is used verbatim and the device name is prepended anyway, giving
+    # "South Shore Line South Shore Train 1".
+    _attr_has_entity_name = True
 
     def __init__(self, coordinator: SouthShoreCoordinator, device: DeviceInfo) -> None:
         self._coordinator = coordinator
@@ -74,7 +78,7 @@ class SouthShoreTrainSensor(_Base):
     def __init__(self, coordinator, entry: ConfigEntry, slot: int, device) -> None:
         super().__init__(coordinator, device)
         self._slot = slot
-        self._attr_name = f"South Shore Train {slot}"
+        self._attr_name = f"Train {slot}"
         self._attr_unique_id = f"{entry.entry_id}_train_{slot}"
 
     def _train(self) -> dict[str, Any] | None:
@@ -121,7 +125,7 @@ class SouthShoreCountSensor(_Base):
 
     def __init__(self, coordinator, entry: ConfigEntry, device) -> None:
         super().__init__(coordinator, device)
-        self._attr_name = "South Shore Trains Running"
+        self._attr_name = "Trains Running"
         self._attr_unique_id = f"{entry.entry_id}_count"
 
     @property

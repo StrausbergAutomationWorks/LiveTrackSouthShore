@@ -1,4 +1,4 @@
-﻿"""Constants for the South Shore Line (NICTD) tracker."""
+"""Constants for the South Shore Line (NICTD) tracker."""
 
 DOMAIN = "south_shore_tracker"
 
