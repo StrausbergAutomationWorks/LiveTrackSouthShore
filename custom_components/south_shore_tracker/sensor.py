@@ -143,6 +143,10 @@ class SouthShoreCountSensor(_Base):
         return {
             "slots_total": LIVE_TRAIN_SLOTS,
             "slots_free": LIVE_TRAIN_SLOTS - data.get("count", 0),
+            # Non-revenue equipment (NICTD label "NIS") is excluded from the
+            # slots so stored units do not clutter the map. Counted here so it
+            # is visible rather than silently dropped.
+            "not_in_service": data.get("not_in_service", 0),
             "trains_running": sorted(trains),
             "delayed_5min_plus": sorted(delayed),
             "worst_delay_min": max(

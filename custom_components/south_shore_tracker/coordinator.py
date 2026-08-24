@@ -118,14 +118,29 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
 
         # --- positions ---
         trains: dict[str, dict[str, Any]] = {}
+        not_in_service = 0
         for ent in pos_feed.entity:
             if not ent.HasField("vehicle"):
                 continue
             v = ent.vehicle
             # route_id is always empty in this feed - NICTD runs one line, so
             # everything present belongs to us. Do NOT filter on route.
-            train = (v.trip.trip_id or v.vehicle.label or "").strip()
+            label = (v.vehicle.label or "").strip()
+            train = (v.trip.trip_id or label).strip()
             if not train:
+                continue
+
+            # NICTD labels non-revenue equipment "NIS" - Not In Service.
+            # Deadheads, stored units and equipment moves all report positions
+            # and cluster in yards beside working trains, which puts several
+            # markers on the map where there is really one train. Verified
+            # 2026-08-24: 15 vehicles in the feed, only 6 in service.
+            #
+            # NIS vehicles are also identifiable by having no stop_id and an
+            # empty stop_time_update list, but the label is the explicit
+            # marker, so that is what is used.
+            if label.upper() == "NIS":
+                not_in_service += 1
                 continue
             lat = getattr(v.position, "latitude", None)
             lon = getattr(v.position, "longitude", None)
@@ -158,6 +173,7 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         return {
             "trains": trains,
             "count": len(trains),
+            "not_in_service": not_in_service,
             "slots": self._assign_slots(trains),
             "feed_timestamp": int(getattr(pos_feed.header, "timestamp", 0) or 0),
             "last_update": datetime.now().isoformat(timespec="seconds"),
