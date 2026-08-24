@@ -130,15 +130,26 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             if not train:
                 continue
 
-            # NICTD labels non-revenue equipment "NIS" - Not In Service.
-            # Deadheads, stored units and equipment moves all report positions
-            # and cluster in yards beside working trains, which puts several
-            # markers on the map where there is really one train. Verified
-            # 2026-08-24: 15 vehicles in the feed, only 6 in service.
+            # NICTD labels a vehicle "NIS" - Not In Service - when it is not
+            # the controlling unit of a revenue train.
             #
-            # NIS vehicles are also identifiable by having no stop_id and an
-            # empty stop_time_update list, but the label is the explicit
-            # marker, so that is what is used.
+            # This matters more than it first appears. South Shore runs
+            # multiple-unit electric consists and EVERY UNIT TRANSMITS ITS OWN
+            # POSITION. The lead unit carries the train number; the trailing
+            # units report as NIS. Without this filter one train renders as two
+            # or three markers travelling in convoy a few tens of metres apart.
+            #
+            # Measured 2026-08-24, three samples a minute apart:
+            #   train 311 + NIS 1060      moved 762 m and 769 m  (2-unit consist)
+            #   train 25 + NIS 32 + NIS 35 moved 830, 848, 925 m (3-unit consist)
+            # Same speed, same heading, 20-100 m apart throughout.
+            #
+            # Genuinely non-revenue moves are also labelled NIS (trip 133 was
+            # running alone at ~6 mph during the same window), so the label
+            # covers both cases and both should be excluded from the slots.
+            #
+            # NIS vehicles additionally have no stop_id and an empty
+            # stop_time_update list, but the label is the explicit marker.
             if label.upper() == "NIS":
                 not_in_service += 1
                 continue
