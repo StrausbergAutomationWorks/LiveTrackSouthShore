@@ -150,9 +150,9 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             #
             # NIS vehicles additionally have no stop_id and an empty
             # stop_time_update list, but the label is the explicit marker.
-            if label.upper() == "NIS":
+            in_service = label.upper() != "NIS"
+            if not in_service:
                 not_in_service += 1
-                continue
             lat = getattr(v.position, "latitude", None)
             lon = getattr(v.position, "longitude", None)
             if not lat or not lon:
@@ -167,6 +167,8 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             delay_s = delays.get(train)
             trains[train] = {
                 "train": train,
+                "in_service": in_service,
+                "label": label or None,
                 "vehicle_id": (v.vehicle.id or "").strip() or None,
                 "latitude": here[0],
                 "longitude": here[1],

@@ -22,9 +22,15 @@ MAX_SCAN_INTERVAL = 3600
 # trains. That suggests something under 12 concurrent at peak. 16 leaves room,
 # and empty slots cost nothing.
 #
+# ! RAISED 16 -> 28 on 2026-08-24 when non-revenue movements were included
+# rather than filtered out. The feed carries far more than revenue trains:
+# at 18:52 there were 15 vehicles present of which only 6 were in service.
+# Every unit of a multi-unit consist transmits separately, so the vehicle
+# count is several times the train count.
+#
 # TODO: measure actual peak over a full weekday and correct this, the way
 # UP-W's 18 was arrived at.
-LIVE_TRAIN_SLOTS = 16
+LIVE_TRAIN_SLOTS = 28
 
 # GTFS-Realtime feeds. Published as plain S3 objects by ETA SPOT on NICTD's
 # behalf - no API key, no licence agreement, no registration.

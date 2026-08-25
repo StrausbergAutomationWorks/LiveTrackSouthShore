@@ -90,7 +90,16 @@ class SouthShoreTrainSensor(_Base):
     @property
     def native_value(self) -> str:
         train = self._train()
-        return train["train"] if train else "idle"
+        if not train:
+            return "idle"
+        # Non-revenue movements report "NIS" rather than their trip number, so
+        # a map card using label_mode: state distinguishes them at a glance.
+        # They are real movements occupying real track - a deadheading consist
+        # is a train, just not one you can board - so they are shown rather
+        # than hidden, but they must not look like a scheduled service.
+        if not train.get("in_service", True):
+            return "NIS"
+        return train["train"]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -102,6 +111,7 @@ class SouthShoreTrainSensor(_Base):
             "slot": self._slot,
             "occupied": True,
             "train": train.get("train"),
+            "in_service": train.get("in_service"),
             "vehicle_id": train.get("vehicle_id"),
             "delay_min": train.get("delay_min"),
             "on_time": train.get("on_time"),
