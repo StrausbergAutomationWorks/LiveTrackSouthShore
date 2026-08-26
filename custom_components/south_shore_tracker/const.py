@@ -64,3 +64,12 @@ ATTRIBUTION = (
 
 USER_AGENT = "home-assistant-south-shore-tracker/1.0"
 REQUEST_TIMEOUT = 20  # seconds
+
+# How many consecutive fetch failures to ride out before the coordinator
+# reports failure and entities go unavailable. The feed is normally fast and
+# reliable (40 consecutive requests on 2026-08-25: 0 failures, median 0.15 s),
+# but 9 transient failures were logged across one day - almost certainly brief
+# network drops on the host rather than the feed itself. Blanking every marker
+# for a single blip is worse than briefly serving a slightly stale position,
+# whose age is visible in feed_timestamp.
+MAX_TRANSIENT_FAILURES = 2
