@@ -54,7 +54,7 @@ Tracker**. The only setting is the poll interval.
 
 ## Author
 
-Built by **Strausberg Automation Works**.
+Built by **StrausbergAutomationWorks**.
 
 Related work — additive contributions to existing Home Assistant integrations:
 
@@ -68,6 +68,6 @@ Related work — additive contributions to existing Home Assistant integrations:
 Live data from NICTD / South Shore Line via ETA SPOT (mysouthshoreline.com).
 Not affiliated with, endorsed by, or supported by NICTD or Metra.
 
-## Licence
+## License
 
 MIT.
