@@ -52,6 +52,21 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         # reports bearing 0 for every vehicle, so it cannot be read directly.
         self._prev_pos: dict[str, tuple[float, float]] = {}
 
+        # Previous fix per VEHICLE, for the geo_location platform.
+        #
+        # ! Keyed by vehicle.id, NOT by trip_id. The slot path keys on
+        # trip_id, which COLLIDES: two trailing NIS units can carry the same
+        # trip_id and the second then overwrites the first. Measured
+        # 2026-09-06 - 12 vehicles in the feed but only 11 distinct trip_ids
+        # (vehicle 12 and vehicle 35 both reported trip 509), so one vehicle
+        # was silently dropped. vehicle.id was set and unique on all twelve.
+        #
+        # Holds (lat, lon, observed_at_epoch) so the map can INTERPOLATE
+        # between two measured fixes. This integration must never extrapolate
+        # - 05_SHARED_LESSONS.md D3b-ii - but "no extrapolation" is NOT "no
+        # motion".
+        self._prev_fix: dict[str, tuple[float, float, int]] = {}
+
         # A single failed fetch should not blank every marker. The S3 feed is
         # normally fast and reliable - 40 consecutive requests on 2026-08-25
         # returned 0 failures at a median 0.15 s - but 9 transient failures
@@ -139,8 +154,11 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                 if best:
                     delays[train] = int(best[1])
 
+        feed_ts = int(getattr(pos_feed.header, "timestamp", 0) or 0)
+
         # --- positions ---
         trains: dict[str, dict[str, Any]] = {}
+        vehicles: dict[str, dict[str, Any]] = {}
         not_in_service = 0
         for ent in pos_feed.entity:
             if not ent.HasField("vehicle"):
@@ -187,6 +205,53 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                 brg = self._bearing(self._prev_pos[train], here)
             self._prev_pos[train] = here
 
+            # --- per-VEHICLE record for the geo_location platform ---
+            #
+            # Identity is vehicle.id: set and unique on every vehicle,
+            # including trailing NIS units. Fall back to the feed entity id,
+            # which is itself "vehicle_position_<id>".
+            veh_id = (v.vehicle.id or "").strip() or ent.id.strip()
+            if veh_id:
+                obs_at = int(v.timestamp) if v.HasField("timestamp") else feed_ts
+                prev = self._prev_fix.get(veh_id)
+                course = None
+                if prev is not None:
+                    course = self._bearing((prev[0], prev[1]), here)
+
+                rec: dict[str, Any] = {
+                    "vehicle_id": veh_id,
+                    "train": train,
+                    "in_service": in_service,
+                    "latitude": here[0],
+                    "longitude": here[1],
+                    "observed_at": obs_at,
+                    # Option 1 labelling, decided 2026-09-11: the train number
+                    # for a controlling unit, "NIS <unit>" for a trailing one.
+                    # No inference. Consist-aware labels ("609 +2") need
+                    # proximity association - backlog item 13 - and NOT
+                    # trip_id, which does not identify the consist.
+                    "marker_label": train if in_service else f"NIS {veh_id}",
+                    "delay_min": (round(delays[train] / 60)
+                                  if train in delays else None),
+                }
+                # Absent values are OMITTED, never sentinels. heading_deg is
+                # never known here: the feed's bearing is always 0.0, so there
+                # is nothing to rotate a marker by.
+                if course is not None:
+                    rec["course_deg"] = round(course, 1)
+                if prev is not None:
+                    seg = obs_at - prev[2]
+                    # previous_* let the map animate between two MEASURED
+                    # fixes. Only useful while the segment is recent and the
+                    # vehicle actually moved.
+                    if 0 < seg <= 600 and (prev[0], prev[1]) != here:
+                        rec["previous_latitude"] = prev[0]
+                        rec["previous_longitude"] = prev[1]
+                        rec["previous_observed_at"] = prev[2]
+                        rec["segment_duration_s"] = seg
+                vehicles[veh_id] = rec
+                self._prev_fix[veh_id] = (here[0], here[1], obs_at)
+
             delay_s = delays.get(train)
             trains[train] = {
                 "train": train,
@@ -206,12 +271,20 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         for gone in [t for t in self._prev_pos if t not in trains]:
             del self._prev_pos[gone]
 
+        # Forget remembered fixes for vehicles no longer in the feed, so a
+        # returning unit starts a fresh segment rather than interpolating
+        # across a gap of hours. The ENTITY is kept either way - registry rows
+        # are never removed for anything that recurs (D6a-0b).
+        for gone in [k for k in self._prev_fix if k not in vehicles]:
+            del self._prev_fix[gone]
+
         result = {
             "trains": trains,
+            "vehicles": vehicles,
             "count": len(trains),
             "not_in_service": not_in_service,
             "slots": self._assign_slots(trains),
-            "feed_timestamp": int(getattr(pos_feed.header, "timestamp", 0) or 0),
+            "feed_timestamp": feed_ts,
             "last_update": datetime.now().isoformat(timespec="seconds"),
         }
         self._last_good = result

@@ -20,9 +20,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Create the slot entities plus one summary sensor."""
-    coordinator = SouthShoreCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
+    # Built in __init__.py and shared with the geo_location platform, so both
+    # run off one poll of the feed.
+    coordinator: SouthShoreCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     device = DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},

@@ -17,15 +17,25 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .coordinator import SouthShoreCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+# ! Adding a platform needs a FULL Home Assistant restart, not a config-entry
+# reload: Python caches imported modules, so a reload re-runs setup against
+# the code already in memory and the new platform simply never appears - no
+# error, no log line. See 05_SHARED_LESSONS.md D6a-0c.
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.GEO_LOCATION]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up South Shore Line Tracker from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
+    # One coordinator for every platform. It is built here rather than in a
+    # platform module so sensor and geo_location share a single poll of the
+    # feed instead of one each.
+    coordinator = SouthShoreCoordinator(hass, entry)
+    await coordinator.async_config_entry_first_refresh()
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
