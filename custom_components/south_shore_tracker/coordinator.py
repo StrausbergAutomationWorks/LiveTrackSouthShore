@@ -61,10 +61,19 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         # (vehicle 12 and vehicle 35 both reported trip 509), so one vehicle
         # was silently dropped. vehicle.id was set and unique on all twelve.
         #
-        # Holds (lat, lon, observed_at_epoch) so the map can INTERPOLATE
-        # between two measured fixes. This integration must never extrapolate
-        # - 05_SHARED_LESSONS.md D3b-ii - but "no extrapolation" is NOT "no
-        # motion".
+        # TWO fixes are held per vehicle, both (lat, lon, observed_at):
+        #   _fix       the most recent DISTINCT observation
+        #   _prev_fix  the distinct observation before that
+        #
+        # ! They must be distinct, not merely consecutive. The coordinator
+        # polls every 30 s and the feed republishes every 30 s, so the two
+        # alias and roughly one poll in three returns a fix identical to the
+        # last. Measured 2026-09-11 over ten samples: three returned an
+        # unchanged observed_at. Storing those duplicates made course_deg and
+        # the previous_* fields appear and vanish on alternate updates, which
+        # the map renders as a stutter. Advancing only on a genuinely new
+        # observation keeps the emitted segment stable between real fixes.
+        self._fix: dict[str, tuple[float, float, int]] = {}
         self._prev_fix: dict[str, tuple[float, float, int]] = {}
 
         # A single failed fetch should not blank every marker. The S3 feed is
@@ -213,10 +222,22 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             veh_id = (v.vehicle.id or "").strip() or ent.id.strip()
             if veh_id:
                 obs_at = int(v.timestamp) if v.HasField("timestamp") else feed_ts
+
+                # Advance only on a genuinely NEW observation. A duplicate
+                # poll must not become the "previous" fix, or the segment
+                # collapses to zero length and the fields drop out.
+                cur = self._fix.get(veh_id)
+                if cur is None or cur[2] != obs_at or (cur[0], cur[1]) != here:
+                    if cur is not None:
+                        self._prev_fix[veh_id] = cur
+                    self._fix[veh_id] = (here[0], here[1], obs_at)
+
                 prev = self._prev_fix.get(veh_id)
+                latest = self._fix[veh_id]
                 course = None
                 if prev is not None:
-                    course = self._bearing((prev[0], prev[1]), here)
+                    course = self._bearing((prev[0], prev[1]),
+                                           (latest[0], latest[1]))
 
                 rec: dict[str, Any] = {
                     "vehicle_id": veh_id,
@@ -224,7 +245,7 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                     "in_service": in_service,
                     "latitude": here[0],
                     "longitude": here[1],
-                    "observed_at": obs_at,
+                    "observed_at": latest[2],
                     # Option 1 labelling, decided 2026-09-11: the train number
                     # for a controlling unit, "NIS <unit>" for a trailing one.
                     # No inference. Consist-aware labels ("609 +2") need
@@ -240,17 +261,17 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                 if course is not None:
                     rec["course_deg"] = round(course, 1)
                 if prev is not None:
-                    seg = obs_at - prev[2]
-                    # previous_* let the map animate between two MEASURED
-                    # fixes. Only useful while the segment is recent and the
-                    # vehicle actually moved.
-                    if 0 < seg <= 600 and (prev[0], prev[1]) != here:
+                    seg = latest[2] - prev[2]
+                    # previous_* let the map INTERPOLATE between two MEASURED
+                    # fixes. This is the other motion mechanism entirely: the
+                    # integration must never extrapolate (D3b-ii), but "no
+                    # extrapolation" is NOT "no motion".
+                    if 0 < seg <= 600:
                         rec["previous_latitude"] = prev[0]
                         rec["previous_longitude"] = prev[1]
                         rec["previous_observed_at"] = prev[2]
                         rec["segment_duration_s"] = seg
                 vehicles[veh_id] = rec
-                self._prev_fix[veh_id] = (here[0], here[1], obs_at)
 
             delay_s = delays.get(train)
             trains[train] = {
@@ -275,8 +296,9 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         # returning unit starts a fresh segment rather than interpolating
         # across a gap of hours. The ENTITY is kept either way - registry rows
         # are never removed for anything that recurs (D6a-0b).
-        for gone in [k for k in self._prev_fix if k not in vehicles]:
-            del self._prev_fix[gone]
+        for gone in [k for k in self._fix if k not in vehicles]:
+            del self._fix[gone]
+            self._prev_fix.pop(gone, None)
 
         result = {
             "trains": trains,
