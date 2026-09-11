@@ -1,4 +1,13 @@
-"""Sensor entities for the South Shore Line tracker."""
+"""Sensor entities for the South Shore Line tracker.
+
+One summary sensor. Positions live on the geo_location platform, one entity
+per vehicle.
+
+! The 28 slot sensors were retired 2026-09-11. A fixed pool of entities with
+trains assigned into it was how a varying number of markers used to be shown;
+geo_location creates an entity per vehicle as it appears, so the pool had
+nothing left to do. See 05_SHARED_LESSONS.md D6.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +19,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import ATTRIBUTION, DOMAIN, LIVE_TRAIN_SLOTS
+from .const import ATTRIBUTION, DOMAIN
 from .coordinator import SouthShoreCoordinator
 
 
@@ -19,7 +28,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Create the slot entities plus one summary sensor."""
+    """Create the summary sensor."""
     # Built in __init__.py and shared with the geo_location platform, so both
     # run off one poll of the feed.
     coordinator: SouthShoreCoordinator = hass.data[DOMAIN][entry.entry_id]
@@ -31,28 +40,28 @@ async def async_setup_entry(
         model="GTFS-Realtime via ETA SPOT",
         configuration_url="https://mysouthshoreline.com",
     )
-
-    entities: list[SensorEntity] = [
-        SouthShoreTrainSensor(coordinator, entry, slot, device)
-        for slot in range(1, LIVE_TRAIN_SLOTS + 1)
-    ]
-    entities.append(SouthShoreCountSensor(coordinator, entry, device))
-    async_add_entities(entities)
+    async_add_entities([SouthShoreCountSensor(coordinator, entry, device)])
 
 
-class _Base(SensorEntity):
-    """Shared wiring."""
+class SouthShoreCountSensor(SensorEntity):
+    """How many trains are currently running."""
 
     _attr_attribution = ATTRIBUTION
     _attr_should_poll = False
-    # HA composes "<device name> <entity name>". Without this the entity name
-    # is used verbatim and the device name is prepended anyway, giving
-    # "South Shore Line South Shore Train 1".
     _attr_has_entity_name = True
+    _attr_icon = "mdi:counter"
+    _attr_native_unit_of_measurement = "trains"
 
-    def __init__(self, coordinator: SouthShoreCoordinator, device: DeviceInfo) -> None:
+    def __init__(
+        self,
+        coordinator: SouthShoreCoordinator,
+        entry: ConfigEntry,
+        device: DeviceInfo,
+    ) -> None:
         self._coordinator = coordinator
         self._attr_device_info = device
+        self._attr_name = "Trains Running"
+        self._attr_unique_id = f"{entry.entry_id}_count"
 
     @property
     def available(self) -> bool:
@@ -63,81 +72,6 @@ class _Base(SensorEntity):
             self._coordinator.async_add_listener(self.async_write_ha_state)
         )
 
-
-class SouthShoreTrainSensor(_Base):
-    """One slot in the live-position pool.
-
-    State is the train number while occupied, otherwise 'idle'. Latitude and
-    longitude are published only when occupied, so Home Assistant's map plots
-    the train while it runs and shows nothing - rather than a stale marker -
-    once it has finished.
-    """
-
-    _attr_icon = "mdi:train"
-
-    def __init__(self, coordinator, entry: ConfigEntry, slot: int, device) -> None:
-        super().__init__(coordinator, device)
-        self._slot = slot
-        self._attr_name = f"Train {slot}"
-        self._attr_unique_id = f"{entry.entry_id}_train_{slot}"
-
-    def _train(self) -> dict[str, Any] | None:
-        slots = (self._coordinator.data or {}).get("slots") or []
-        if self._slot - 1 < len(slots):
-            return slots[self._slot - 1]
-        return None
-
-    @property
-    def native_value(self) -> str:
-        train = self._train()
-        if not train:
-            return "idle"
-        # Non-revenue movements report "NIS" rather than their trip number, so
-        # a map card using label_mode: state distinguishes them at a glance.
-        # They are real movements occupying real track - a deadheading consist
-        # is a train, just not one you can board - so they are shown rather
-        # than hidden, but they must not look like a scheduled service.
-        if not train.get("in_service", True):
-            return "NIS"
-        return train["train"]
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        train = self._train()
-        if not train:
-            return {"slot": self._slot, "occupied": False}
-
-        attrs: dict[str, Any] = {
-            "slot": self._slot,
-            "occupied": True,
-            "train": train.get("train"),
-            "in_service": train.get("in_service"),
-            "vehicle_id": train.get("vehicle_id"),
-            "delay_min": train.get("delay_min"),
-            "on_time": train.get("on_time"),
-            # Derived from successive positions: the feed reports bearing 0
-            # for every vehicle, so it cannot be read directly.
-            "bearing": train.get("bearing"),
-            "feed_timestamp": (self._coordinator.data or {}).get("feed_timestamp"),
-        }
-        # Home Assistant's map keys on these exact attribute names.
-        if train.get("latitude") is not None and train.get("longitude") is not None:
-            attrs["latitude"] = train["latitude"]
-            attrs["longitude"] = train["longitude"]
-        return attrs
-
-
-class SouthShoreCountSensor(_Base):
-    """How many trains are currently running."""
-
-    _attr_icon = "mdi:counter"
-    _attr_native_unit_of_measurement = "trains"
-
-    def __init__(self, coordinator, entry: ConfigEntry, device) -> None:
-        super().__init__(coordinator, device)
-        self._attr_name = "Trains Running"
-        self._attr_unique_id = f"{entry.entry_id}_count"
-
     @property
     def native_value(self) -> int:
         return (self._coordinator.data or {}).get("count", 0)
@@ -145,24 +79,28 @@ class SouthShoreCountSensor(_Base):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         data = self._coordinator.data or {}
-        trains = data.get("trains") or {}
-        delayed = [
-            t["train"] for t in trains.values()
-            if t.get("delay_min") is not None and t["delay_min"] >= 5
-        ]
+        vehicles = data.get("vehicles") or {}
+        delayed = sorted({
+            r["train"] for r in vehicles.values()
+            if r.get("in_service") and r.get("delay_min") is not None
+            and r["delay_min"] >= 5
+        })
         return {
-            "slots_total": LIVE_TRAIN_SLOTS,
-            "slots_free": LIVE_TRAIN_SLOTS - data.get("count", 0),
-            # Non-revenue equipment (NICTD label "NIS") is excluded from the
-            # slots so stored units do not clutter the map. Counted here so it
-            # is visible rather than silently dropped.
+            # Trains, not vehicles: every unit of a consist transmits its own
+            # position, so the vehicle count runs several times the train
+            # count. Both are published because both are asked for.
+            "trains_running": data.get("running", []),
+            "vehicles_total": len(vehicles),
+            # Non-revenue equipment, which NICTD labels NIS. A deadheading
+            # consist is a real movement on real track, so it gets a marker
+            # like anything else - this is the count, not a filter.
             "not_in_service": data.get("not_in_service", 0),
-            "trains_running": sorted(trains),
-            "delayed_5min_plus": sorted(delayed),
+            "delayed_5min_plus": delayed,
             "worst_delay_min": max(
-                (t["delay_min"] for t in trains.values()
-                 if t.get("delay_min") is not None),
+                (r["delay_min"] for r in vehicles.values()
+                 if r.get("delay_min") is not None),
                 default=None,
             ),
+            "feed_timestamp": data.get("feed_timestamp"),
             "last_update": data.get("last_update"),
         }

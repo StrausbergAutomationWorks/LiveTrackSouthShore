@@ -1,4 +1,4 @@
-"""Coordinator: fetch NICTD positions + delays and place trains into slots."""
+"""Coordinator: fetch NICTD positions + delays, one record per vehicle."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
-    LIVE_TRAIN_SLOTS,
     MAX_TRANSIENT_FAILURES,
     POSITIONS_URL,
     REQUEST_TIMEOUT,
@@ -29,7 +28,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SouthShoreCoordinator(DataUpdateCoordinator):
-    """Poll both realtime feeds and expose trains in stable slots."""
+    """Poll both realtime feeds and expose one record per vehicle."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         opts = {**entry.data, **entry.options}
@@ -42,15 +41,6 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=interval),
         )
         self._session = async_get_clientsession(hass)
-
-        # Sticky train-number -> slot mapping. Without stickiness the slot
-        # order reshuffles as trains enter and leave service, and map markers
-        # jump between entities instead of moving.
-        self._slot_by_train: dict[str, int] = {}
-
-        # Previous position per train, so direction can be inferred. The feed
-        # reports bearing 0 for every vehicle, so it cannot be read directly.
-        self._prev_pos: dict[str, tuple[float, float]] = {}
 
         # Previous fix per VEHICLE, for the geo_location platform.
         #
@@ -166,7 +156,6 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         feed_ts = int(getattr(pos_feed.header, "timestamp", 0) or 0)
 
         # --- positions ---
-        trains: dict[str, dict[str, Any]] = {}
         vehicles: dict[str, dict[str, Any]] = {}
         not_in_service = 0
         for ent in pos_feed.entity:
@@ -196,7 +185,8 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             #
             # Genuinely non-revenue moves are also labelled NIS (trip 133 was
             # running alone at ~6 mph during the same window), so the label
-            # covers both cases and both should be excluded from the slots.
+            # covers both cases. Both are REAL MOVEMENTS on real track and
+            # both get a marker; in_service is what distinguishes them.
             #
             # NIS vehicles additionally have no stop_id and an empty
             # stop_time_update list, but the label is the explicit marker.
@@ -209,10 +199,6 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                 continue
 
             here = (round(float(lat), 6), round(float(lon), 6))
-            brg = None
-            if train in self._prev_pos:
-                brg = self._bearing(self._prev_pos[train], here)
-            self._prev_pos[train] = here
 
             # --- per-VEHICLE record for the geo_location platform ---
             #
@@ -273,25 +259,6 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                         rec["segment_duration_s"] = seg
                 vehicles[veh_id] = rec
 
-            delay_s = delays.get(train)
-            trains[train] = {
-                "train": train,
-                "in_service": in_service,
-                "label": label or None,
-                "vehicle_id": (v.vehicle.id or "").strip() or None,
-                "latitude": here[0],
-                "longitude": here[1],
-                # Derived, not from the feed - see const.py.
-                "bearing": round(brg) if brg is not None else None,
-                "delay_min": round(delay_s / 60) if delay_s is not None else None,
-                "delay_seconds": delay_s,
-                "on_time": (delay_s is not None and abs(delay_s) < 300),
-            }
-
-        # drop remembered positions for trains no longer running
-        for gone in [t for t in self._prev_pos if t not in trains]:
-            del self._prev_pos[gone]
-
         # Forget remembered fixes for vehicles no longer in the feed, so a
         # returning unit starts a fresh segment rather than interpolating
         # across a gap of hours. The ENTITY is kept either way - registry rows
@@ -300,44 +267,18 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             del self._fix[gone]
             self._prev_fix.pop(gone, None)
 
+        # Trains, not vehicles: a three-unit consist is one train. Counted
+        # from the in-service records, which are keyed by vehicle.id, so the
+        # trip_id collision that used to drop a vehicle cannot happen here.
+        running = sorted({r["train"] for r in vehicles.values() if r["in_service"]})
+
         result = {
-            "trains": trains,
             "vehicles": vehicles,
-            "count": len(trains),
+            "running": running,
+            "count": len(running),
             "not_in_service": not_in_service,
-            "slots": self._assign_slots(trains),
             "feed_timestamp": feed_ts,
             "last_update": datetime.now().isoformat(timespec="seconds"),
         }
         self._last_good = result
         return result
-
-    def _assign_slots(
-        self, trains: dict[str, dict[str, Any]]
-    ) -> list[dict[str, Any] | None]:
-        """Place trains in stable slots; a train keeps its slot for its run."""
-        live = set(trains)
-
-        for gone in [t for t in self._slot_by_train if t not in live]:
-            del self._slot_by_train[gone]
-
-        taken = set(self._slot_by_train.values())
-        for train in sorted(live):
-            if train in self._slot_by_train:
-                continue
-            free = next((i for i in range(LIVE_TRAIN_SLOTS) if i not in taken), None)
-            if free is None:
-                _LOGGER.warning(
-                    "More than %s South Shore trains running; %s not shown. "
-                    "LIVE_TRAIN_SLOTS needs raising.",
-                    LIVE_TRAIN_SLOTS,
-                    train,
-                )
-                break
-            self._slot_by_train[train] = free
-            taken.add(free)
-
-        slots: list[dict[str, Any] | None] = [None] * LIVE_TRAIN_SLOTS
-        for train, idx in self._slot_by_train.items():
-            slots[idx] = trains[train]
-        return slots

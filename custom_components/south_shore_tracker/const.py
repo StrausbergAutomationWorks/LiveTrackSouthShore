@@ -10,27 +10,22 @@ DEFAULT_SCAN_INTERVAL = 30  # seconds; the feed republishes roughly this often
 MIN_SCAN_INTERVAL = 15
 MAX_SCAN_INTERVAL = 3600
 
-# Live-position slots.
+# ! RETIRED 2026-09-11: LIVE_TRAIN_SLOTS and the 28 slot sensors are gone.
 #
-# ! ESTIMATE, NOT MEASURED - unlike the Metra tracker, whose pool was derived
-# from Metra's own GTFS static schedule. No current NICTD static GTFS source
-# could be found (TransitFeeds is deprecated; GTFS Data Exchange's NICTD feed
-# was last updated in 2010), so peak concurrency is unknown.
+# The slot pool existed because Home Assistant had no way to show a varying
+# number of markers, so a fixed pool of entities was allocated and trains were
+# assigned into it. The geo_location platform creates one entity per vehicle
+# as it appears, so the pool has nothing left to do.
 #
-# Reasoning behind 16: the line runs ~21 stations over 99 miles, end-to-end
-# journeys take roughly 2.5 h, and weekday service is in the region of 40-45
-# trains. That suggests something under 12 concurrent at peak. 16 leaves room,
-# and empty slots cost nothing.
+# It also carried a bug that dies with it: slots were keyed on trip_id, and
+# two trailing NIS units can share one. Measured 2026-09-06 - 12 vehicles in
+# the feed but only 11 distinct trip_ids - so one vehicle was silently
+# dropped. geo_location keys on vehicle.id, which is set and unique on every
+# vehicle including trailing units.
 #
-# ! RAISED 16 -> 28 on 2026-08-24 when non-revenue movements were included
-# rather than filtered out. The feed carries far more than revenue trains:
-# at 18:52 there were 15 vehicles present of which only 6 were in service.
-# Every unit of a multi-unit consist transmits separately, so the vehicle
-# count is several times the train count.
-#
-# TODO: measure actual peak over a full weekday and correct this, the way
-# UP-W's 18 was arrived at.
-LIVE_TRAIN_SLOTS = 28
+# Backlog item 12 asked for the real peak to be measured so the estimate of
+# 28 could be corrected. That question is moot: there is no longer a number
+# to size.
 
 # GTFS-Realtime feeds. Published as plain S3 objects by ETA SPOT on NICTD's
 # behalf - no API key, no licence agreement, no registration.
