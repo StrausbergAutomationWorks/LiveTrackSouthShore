@@ -101,6 +101,22 @@ class SouthShoreCountSensor(SensorEntity):
                  if r.get("delay_min") is not None),
                 default=None,
             ),
+            # ! NO OTHER TIMESTAMP GOES IN HERE.
+            #
+            # The recorder keys attribute blobs by CONTENT, so an attribute
+            # that is unique on every write can never be shared and mints a
+            # new blob each update. Measured on this instance: 69,314 distinct
+            # blobs holding 77.9 MB. That is how the old flights_above
+            # attribute list reached 377 MB/week.
+            #
+            # feed_timestamp stays because it is the only way to see a STALE
+            # feed - the coordinator serves the last good result through a
+            # transient failure, and this is what makes that visible rather
+            # than silent. It also changes only once per feed republish, not
+            # once per write.
+            #
+            # A last_update attribute was removed 2026-09-11: it was unique on
+            # every write by construction AND redundant, since Home Assistant
+            # already tracks last_updated on the state itself.
             "feed_timestamp": data.get("feed_timestamp"),
-            "last_update": data.get("last_update"),
         }
