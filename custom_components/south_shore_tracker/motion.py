@@ -88,8 +88,35 @@ def track(
     return out
 
 
-def forget_absent(fixes: dict[str, Fix], prev_fixes: dict[str, Fix], present) -> None:
-    """Drop remembered fixes for vehicles no longer in the feed."""
+def rotation(held: dict[str, float], veh_id: str,
+             course_deg: float | None) -> dict[str, float | str]:
+    """Which way the marker's arrow points, holding it while the unit stands.
+
+    Uses Live Track Aircraft's vocabulary (06_MAP_CONTRACT.md D4):
+    `icon_rotation_deg` plus `icon_rotation_basis`, here "course" when the
+    unit moved between its last two distinct fixes and "held" when it did not
+    and an earlier good bearing exists. Decided by Lee 2026-09-20: a stopped
+    train keeps the last good bearing.
+
+    ! course_deg itself still disappears at rest - D3c-iii says that omission
+    is correct and must not be "fixed". The held value is a DISPLAY field and
+    lives under its own key, so no consumer mistakes it for a measurement.
+    A unit first seen standing still has no bearing at all: omitted (D0).
+    """
+    if course_deg is not None:
+        held[veh_id] = course_deg
+        return {"icon_rotation_deg": course_deg, "icon_rotation_basis": "course"}
+    if veh_id in held:
+        return {"icon_rotation_deg": held[veh_id], "icon_rotation_basis": "held"}
+    return {}
+
+
+def forget_absent(fixes: dict[str, Fix], prev_fixes: dict[str, Fix], present,
+                  held: dict[str, float] | None = None) -> None:
+    """Drop remembered fixes (and held bearings) for vehicles no longer in the feed."""
     for gone in [k for k in fixes if k not in present]:
         del fixes[gone]
         prev_fixes.pop(gone, None)
+    if held is not None:
+        for gone in [k for k in held if k not in present]:
+            del held[gone]

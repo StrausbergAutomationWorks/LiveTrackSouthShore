@@ -23,7 +23,8 @@ from .const import (
     TRIP_UPDATES_URL,
     USER_AGENT,
 )
-from .motion import Fix, forget_absent, track
+from .lines import LABEL_COLOR, MARKER_COLOR, line_of
+from .motion import Fix, forget_absent, rotation, track
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -67,6 +68,8 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         # observation keeps the emitted segment stable between real fixes.
         self._fix: dict[str, Fix] = {}
         self._prev_fix: dict[str, Fix] = {}
+        # Last good bearing per vehicle, held while it stands (motion.rotation).
+        self._held: dict[str, float] = {}
 
         # A single failed fetch should not blank every marker. The S3 feed is
         # normally fast and reliable - 40 consecutive requests on 2026-08-25
@@ -226,13 +229,22 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                 # fixes. The integration must never extrapolate (D3b-ii), but
                 # "no extrapolation" is NOT "no motion".
                 rec.update(motion)
+                # Arrow direction, held while the unit stands (Lee 2026-09-20).
+                rec.update(rotation(self._held, veh_id, motion.get("course_deg")))
+                # Line from the TRIP id, never the label: a Monon train laying
+                # over reported label "NIS" with trip_id "1601" (SSOT).
+                line = line_of(v.trip.trip_id)
+                if line is not None:
+                    rec["line"] = line
+                    rec["marker_color"] = MARKER_COLOR[line]
+                    rec["marker_label_color"] = LABEL_COLOR[line]
                 vehicles[veh_id] = rec
 
         # Forget remembered fixes for vehicles no longer in the feed, so a
         # returning unit starts a fresh segment rather than interpolating
         # across a gap of hours. The ENTITY is kept either way - registry rows
         # are never removed for anything that recurs (D6a-0b).
-        forget_absent(self._fix, self._prev_fix, vehicles)
+        forget_absent(self._fix, self._prev_fix, vehicles, self._held)
 
         # Trains, not vehicles: a three-unit consist is one train. Counted
         # from the in-service records, which are keyed by vehicle.id, so the
