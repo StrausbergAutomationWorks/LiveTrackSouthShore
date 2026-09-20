@@ -23,7 +23,7 @@ from .const import (
     TRIP_UPDATES_URL,
     USER_AGENT,
 )
-from .lines import LABEL_COLOR, MARKER_COLOR, line_of
+from .lines import line_of, styling
 from .motion import Fix, forget_absent, rotation, track
 
 _LOGGER = logging.getLogger(__name__)
@@ -236,8 +236,8 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                 line = line_of(v.trip.trip_id)
                 if line is not None:
                     rec["line"] = line
-                    rec["marker_color"] = MARKER_COLOR[line]
-                    rec["marker_label_color"] = LABEL_COLOR[line]
+                # All of the marker's colours, each only when set (D4a 6b).
+                rec.update(styling(line))
                 vehicles[veh_id] = rec
 
         # Forget remembered fixes for vehicles no longer in the feed, so a

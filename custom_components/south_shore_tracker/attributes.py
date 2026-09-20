@@ -20,17 +20,19 @@ Z_INDEX_OFFSET = 25
 
 # Carried over from the record unchanged when present.
 #
-# line / marker_color / marker_label_color: set by the coordinator from
-# lines.py, only when the trip id is a train number (D4a rule 3: no colour ->
-# no key). marker_label_color is NEW 2026-09-20 and the card does not read it
-# yet - backlog item for LiveTrackMapCard; until then the card draws its
-# white outlined label (D4a rule 6) and simply ignores the key.
+# line and the colour keys: set by the coordinator from lines.styling(), only
+# when the trip id is a train number (D4a rule 3: no colour -> no key). The
+# outline keys are per line - each line carries only the ones it sets, and
+# the card draws its default dark outline where one is absent (D4a rule 6b).
+# The card (0.1.0+2227ef0) reads all of them.
 #
 # icon_rotation_deg / icon_rotation_basis: the arrow's direction, "course" or
 # "held" (motion.rotation). A DISPLAY field; course_deg stays the measurement.
 _PASSTHROUGH = ("course_deg", "previous_latitude", "previous_longitude",
                 "segment_duration_s", "line", "marker_color",
-                "marker_label_color", "icon_rotation_deg", "icon_rotation_basis")
+                "marker_label_color", "marker_label_outline_color",
+                "marker_arrow_outline_color",
+                "icon_rotation_deg", "icon_rotation_basis")
 
 
 def iso_utc(epoch_s: int) -> str:

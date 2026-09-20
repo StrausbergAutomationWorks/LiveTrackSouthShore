@@ -64,6 +64,67 @@ class LineTests(unittest.TestCase):
         self.assertEqual(lines.LABEL_COLOR[lines.MONON], lines.MARKER_COLOR[lines.LAKESHORE])
 
 
+COLOUR_KEYS = ("marker_color", "marker_label_color", "marker_label_outline_color",
+               "marker_arrow_color", "marker_arrow_outline_color")
+
+
+def _published(trip_id):
+    """What a unit on this trip publishes, through the coordinator's own path:
+    line_of -> styling onto the record -> attributes.to_attributes."""
+    rec = {"vehicle_id": "13", "train": trip_id or "NIS", "in_service": True,
+           "latitude": 41.6, "longitude": -87.5, "marker_label": "x"}
+    line = lines.line_of(trip_id)
+    if line is not None:
+        rec["line"] = line
+    rec.update(lines.styling(line))
+    return attributes.to_attributes(rec)
+
+
+class OutlineTests(unittest.TestCase):
+    """Lee 2026-09-20, D4a rule 6b: Lakeshore label outlined orange, Monon
+    arrow outlined white, nothing emitted just to restate a default."""
+
+    def test_every_lakeshore_number(self):
+        for n in LAKESHORE:
+            a = _published(str(n))
+            self.assertEqual(a["marker_label_outline_color"], "#EF8322", n)
+            self.assertNotIn("marker_arrow_outline_color", a, n)
+            self.assertNotIn("marker_arrow_color", a, n)
+
+    def test_every_monon_number(self):
+        for n in MONON:
+            a = _published(str(n))
+            self.assertEqual(a["marker_arrow_outline_color"].upper(), "#FFFFFF", n)
+            self.assertNotIn("marker_label_outline_color", a, n)
+            self.assertNotIn("marker_arrow_color", a, n)
+
+    def test_no_train_number_no_colour_keys(self):
+        for t in (None, "", "NIS", "515A"):
+            a = _published(t)
+            self.assertNotIn("line", a, repr(t))
+            for k in COLOUR_KEYS:
+                self.assertNotIn(k, a, (repr(t), k))
+
+    def test_styling_table_restates_no_default(self):
+        # Checked at the source as well as at publication: attributes.py's
+        # passthrough is a whitelist and would hide an extra key in lines.py.
+        self.assertEqual(lines.styling(None), {})
+        self.assertEqual(set(lines.styling(lines.LAKESHORE)),
+                         {"marker_color", "marker_label_color",
+                          "marker_label_outline_color"})
+        self.assertEqual(set(lines.styling(lines.MONON)),
+                         {"marker_color", "marker_label_color",
+                          "marker_arrow_outline_color"})
+
+    def test_every_value_is_d4a_form(self):
+        for n in MONON + LAKESHORE:
+            a = _published(str(n))
+            present = [k for k in COLOUR_KEYS if k in a]
+            self.assertEqual(len(present), 3, n)
+            for k in present:
+                self.assertRegex(a[k], HEX6, (n, k))
+
+
 class HeldBearingTests(unittest.TestCase):
 
     A = (41.600000, -87.300000)
