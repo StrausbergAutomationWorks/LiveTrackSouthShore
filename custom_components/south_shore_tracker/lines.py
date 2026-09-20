@@ -28,15 +28,16 @@ LABEL_COLOR = {LAKESHORE: "#7F281F", MONON: "#EF8322"}
 # Outlines, set by Lee 2026-09-20 after seeing the render (D4a rule 6b). A line
 # ABSENT from a table emits no key, and the card draws its default dark
 # outline. Never add an entry just to restate that default.
-#   Lakeshore label: outlined in the fill's own orange. The #7F281F label read
-#     near-black inside a dark outline, and the label overflows the 28 px disc;
-#     an orange outline reads as the disc continuing under the text.
-#   Monon arrow: outlined white. It is filled #7F281F (the marker's fill, the
-#     card's default), and dark red with a dark outline was faint on the map.
-# marker_arrow_color is deliberately NOT emitted: the default, the marker's
-# own fill, is what Lee saw and kept.
-LABEL_OUTLINE_COLOR = {LAKESHORE: "#EF8322"}
-ARROW_OUTLINE_COLOR = {MONON: "#FFFFFF"}
+#   Labels: outlined in the marker's own fill. The label overflows the 28 px
+#     disc; an outline in the fill reads as the disc continuing under the
+#     text. (Lakeshore first, where #7F281F in a dark outline read near-black;
+#     Monon added the same night.)
+#   Arrows: filled with the marker's fill (the card's default, so
+#     marker_arrow_color is NOT emitted) and outlined in the OTHER line colour
+#     - Lakeshore orange arrow in maroon, Monon maroon arrow in orange.
+#     Replaces a white Monon arrow outline deployed earlier that night.
+LABEL_OUTLINE_COLOR = {LAKESHORE: "#EF8322", MONON: "#7F281F"}
+ARROW_OUTLINE_COLOR = {LAKESHORE: "#7F281F", MONON: "#EF8322"}
 
 
 def styling(line: str | None) -> dict[str, str]:
