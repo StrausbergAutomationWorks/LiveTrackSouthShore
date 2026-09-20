@@ -23,6 +23,7 @@ from .const import (
     TRIP_UPDATES_URL,
     USER_AGENT,
 )
+from .motion import Fix, forget_absent, track
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +52,8 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         # (vehicle 12 and vehicle 35 both reported trip 509), so one vehicle
         # was silently dropped. vehicle.id was set and unique on all twelve.
         #
-        # TWO fixes are held per vehicle, both (lat, lon, observed_at):
+        # TWO fixes are held per vehicle, both motion.Fix
+        # (lat, lon, t, t_is_observation):
         #   _fix       the most recent DISTINCT observation
         #   _prev_fix  the distinct observation before that
         #
@@ -63,8 +65,8 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         # the previous_* fields appear and vanish on alternate updates, which
         # the map renders as a stutter. Advancing only on a genuinely new
         # observation keeps the emitted segment stable between real fixes.
-        self._fix: dict[str, tuple[float, float, int]] = {}
-        self._prev_fix: dict[str, tuple[float, float, int]] = {}
+        self._fix: dict[str, Fix] = {}
+        self._prev_fix: dict[str, Fix] = {}
 
         # A single failed fetch should not blank every marker. The S3 feed is
         # normally fast and reliable - 40 consecutive requests on 2026-08-25
@@ -96,21 +98,6 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Could not decode %s", url, exc_info=True)
             return None
-
-    @staticmethod
-    def _bearing(a: tuple[float, float], b: tuple[float, float]) -> float | None:
-        """Bearing from a to b, or None if they are effectively the same point."""
-        import math
-
-        lat1, lon1 = math.radians(a[0]), math.radians(a[1])
-        lat2, lon2 = math.radians(b[0]), math.radians(b[1])
-        dlon = lon2 - lon1
-        # ~10 m; below this the train is stopped and any bearing is noise
-        if abs(b[0] - a[0]) < 1e-4 and abs(b[1] - a[1]) < 1e-4:
-            return None
-        y = math.sin(dlon) * math.cos(lat2)
-        x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
-        return (math.degrees(math.atan2(y, x)) + 360) % 360
 
     async def _async_update_data(self) -> dict[str, Any]:
         pos_feed = await self._fetch_feed(POSITIONS_URL)
@@ -207,23 +194,14 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
             # which is itself "vehicle_position_<id>".
             veh_id = (v.vehicle.id or "").strip() or ent.id.strip()
             if veh_id:
-                obs_at = int(v.timestamp) if v.HasField("timestamp") else feed_ts
-
-                # Advance only on a genuinely NEW observation. A duplicate
-                # poll must not become the "previous" fix, or the segment
-                # collapses to zero length and the fields drop out.
-                cur = self._fix.get(veh_id)
-                if cur is None or cur[2] != obs_at or (cur[0], cur[1]) != here:
-                    if cur is not None:
-                        self._prev_fix[veh_id] = cur
-                    self._fix[veh_id] = (here[0], here[1], obs_at)
-
-                prev = self._prev_fix.get(veh_id)
-                latest = self._fix[veh_id]
-                course = None
-                if prev is not None:
-                    course = self._bearing((prev[0], prev[1]),
-                                           (latest[0], latest[1]))
+                # The vehicle's own GTFS-RT timestamp is when this position
+                # was true. Without one, the feed header time stands in ONLY
+                # to detect duplicate polls; motion.track() never publishes it
+                # (06_MAP_CONTRACT.md D2). Measured 2026-09-20: every vehicle
+                # sampled carried a timestamp - see the SSOT.
+                has_ts = v.HasField("timestamp") and int(v.timestamp) > 0
+                t = int(v.timestamp) if has_ts else feed_ts
+                motion = track(self._fix, self._prev_fix, veh_id, here, t, has_ts)
 
                 rec: dict[str, Any] = {
                     "vehicle_id": veh_id,
@@ -231,7 +209,6 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                     "in_service": in_service,
                     "latitude": here[0],
                     "longitude": here[1],
-                    "observed_at": latest[2],
                     # Option 1 labelling, decided 2026-09-11: the train number
                     # for a controlling unit, "NIS <unit>" for a trailing one.
                     # No inference. Consist-aware labels ("609 +2") need
@@ -241,31 +218,21 @@ class SouthShoreCoordinator(DataUpdateCoordinator):
                     "delay_min": (round(delays[train] / 60)
                                   if train in delays else None),
                 }
-                # Absent values are OMITTED, never sentinels. heading_deg is
-                # never known here: the feed's bearing is always 0.0, so there
-                # is nothing to rotate a marker by.
-                if course is not None:
-                    rec["course_deg"] = round(course, 1)
-                if prev is not None:
-                    seg = latest[2] - prev[2]
-                    # previous_* let the map INTERPOLATE between two MEASURED
-                    # fixes. This is the other motion mechanism entirely: the
-                    # integration must never extrapolate (D3b-ii), but "no
-                    # extrapolation" is NOT "no motion".
-                    if 0 < seg <= 600:
-                        rec["previous_latitude"] = prev[0]
-                        rec["previous_longitude"] = prev[1]
-                        rec["previous_observed_at"] = prev[2]
-                        rec["segment_duration_s"] = seg
+                # observed_at, course_deg, previous_* and segment_duration_s,
+                # each only when known; integer epoch seconds for the times.
+                # heading_deg is never known here: the feed's bearing is
+                # always 0.0, so there is nothing to rotate a marker by.
+                # previous_* let the map INTERPOLATE between two MEASURED
+                # fixes. The integration must never extrapolate (D3b-ii), but
+                # "no extrapolation" is NOT "no motion".
+                rec.update(motion)
                 vehicles[veh_id] = rec
 
         # Forget remembered fixes for vehicles no longer in the feed, so a
         # returning unit starts a fresh segment rather than interpolating
         # across a gap of hours. The ENTITY is kept either way - registry rows
         # are never removed for anything that recurs (D6a-0b).
-        for gone in [k for k in self._fix if k not in vehicles]:
-            del self._fix[gone]
-            self._prev_fix.pop(gone, None)
+        forget_absent(self._fix, self._prev_fix, vehicles)
 
         # Trains, not vehicles: a three-unit consist is one train. Counted
         # from the in-service records, which are keyed by vehicle.id, so the

@@ -5,7 +5,8 @@ transmits its own position, so a three-car train is three markers; the
 `in_service` attribute and the marker label distinguish the controlling unit
 from its trailing NIS units.
 
-Contract: 10_SEED/05_SHARED_LESSONS.md section D.
+Contract: 10_SEED/06_MAP_CONTRACT.md section D (moved out of 05_SHARED_LESSONS).
+Attribute mapping: attributes.py. Fix tracking: motion.py.
 
   * `state` is @final and IS the distance. Do not add a distance attribute.
   * `state_attributes` is @final and returns only source/latitude/longitude.
@@ -36,12 +37,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util.location import distance as _distance
 
+from .attributes import to_attributes
 from .const import ATTRIBUTION, DOMAIN
 from .coordinator import SouthShoreCoordinator
-
-# Stacking order on the shared map. Ships use 20; trains sit above them so a
-# marker on land is not hidden under one on the lake.
-Z_INDEX_OFFSET = 25
 
 
 async def async_setup_entry(
@@ -135,34 +133,9 @@ class SouthShoreVehicle(GeolocationEvent):
         rec = self._rec()
         if not rec:
             return {}
-
-        attrs: dict[str, Any] = {
-            "identity": rec["vehicle_id"],
-            "marker_label": rec["marker_label"],
-            "vehicle_id": rec["vehicle_id"],
-            "train": rec["train"],
-            "in_service": rec["in_service"],
-            "last_seen": rec["observed_at"],
-            "z_index_offset": Z_INDEX_OFFSET,
-        }
-        # Absent values are OMITTED, never sentinels: a wrong value is worse
-        # than a missing one because the consumer cannot tell.
-        #
-        # heading_deg is never present. The feed's bearing is 0.0 on every
-        # vehicle, so which way a unit FACES is unknown and nothing should
-        # rotate a marker by it.
-        for key in (
-            "course_deg",
-            "previous_latitude",
-            "previous_longitude",
-            "previous_observed_at",
-            "segment_duration_s",
-        ):
-            if key in rec:
-                attrs[key] = rec[key]
-        if rec.get("delay_min") is not None:
-            attrs["delay_min"] = rec["delay_min"]
-        return attrs
+        # The mapping, including the epoch -> ISO 8601 conversion of every
+        # instant, lives in attributes.py and nowhere else.
+        return to_attributes(rec)
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
