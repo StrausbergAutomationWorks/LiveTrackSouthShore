@@ -14,9 +14,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-# Stacking order on the shared map. Ships use 20; trains sit above them so a
-# marker on land is not hidden under one on the lake.
-Z_INDEX_OFFSET = 25
+# The shared map's layer (06_MAP_CONTRACT.md D10). Every unit is a train,
+# NIS units included (D8), so one name for all of them. The card maps the name
+# to its stacking offset; the numeric z_index_offset attribute this replaced
+# was retired by D10 - the card never read it.
+#
+# No object_ids (D11): the feed states no MMSI, IMO, ICAO address or
+# registration, and a vehicle or trip id is not one of them.
+MAP_LAYER = "rail"
 
 # Carried over from the record unchanged when present.
 #
@@ -48,7 +53,7 @@ def to_attributes(rec: dict[str, Any]) -> dict[str, Any]:
         "vehicle_id": rec["vehicle_id"],
         "train": rec["train"],
         "in_service": rec["in_service"],
-        "z_index_offset": Z_INDEX_OFFSET,
+        "map_layer": MAP_LAYER,
     }
     # observed_at: when the PUBLISHED position was true (D2). last_seen is the
     # same instant - the vehicle's own timestamp is the last we heard of it.
